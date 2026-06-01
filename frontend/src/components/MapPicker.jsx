@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { MapPin, Navigation, Loader } from 'lucide-react';
+import FreeMap from './FreeMap';
 
 const MapPicker = ({ onLocationSelect }) => {
   const [location, setLocation] = useState(null);
@@ -13,7 +14,23 @@ const MapPicker = ({ onLocationSelect }) => {
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
     );
     const data = await res.json();
-    return data.display_name || 'Location detected';
+    return data.display_name || `Coordinate (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+  };
+
+  // 🔍 Forward geocode manual address using OpenStreetMap (FREE)
+  const forwardGeocode = async (addressText) => {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressText)}&limit=1`
+    );
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+        address: data[0].display_name
+      };
+    }
+    return null;
   };
 
   // 📍 USE CURRENT LIVE LOCATION
@@ -43,7 +60,7 @@ const MapPicker = ({ onLocationSelect }) => {
           setLocation(finalLocation);
           onLocationSelect(finalLocation); // 🔥 auto-send to Booking.jsx
         } catch (err) {
-          setError('Failed to fetch address');
+          setError('Failed to fetch address for current location');
         } finally {
           setLoading(false);
         }
@@ -56,7 +73,30 @@ const MapPicker = ({ onLocationSelect }) => {
     );
   };
 
-  // ✍️ MANUAL ADDRESS (fallback only)
+  // 🎯 SELECT LOCATION FROM INTERACTIVE MAP DRAG/CLICK
+  const handleMapLocationSelect = async (lat, lng) => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const address = await reverseGeocode(lat, lng);
+      
+      const finalLocation = {
+        lat,
+        lng,
+        address
+      };
+
+      setLocation(finalLocation);
+      onLocationSelect(finalLocation);
+    } catch (err) {
+      setError('Failed to get address for selected map coordinates');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ✍️ MANUAL ADDRESS SUBMIT
   const handleManualAddressSubmit = async () => {
     if (!manualAddress.trim()) {
       setError('Please enter an address');
@@ -67,17 +107,31 @@ const MapPicker = ({ onLocationSelect }) => {
     setError('');
 
     try {
-      // ⚠️ Fallback only (no random GPS)
+      // Attempt real geocoding using OSM
+      const geoResult = await forwardGeocode(manualAddress);
+      
+      if (geoResult) {
+        setLocation(geoResult);
+        onLocationSelect(geoResult);
+      } else {
+        // Fallback to Delhi default center if lookup yielded nothing
+        const demoLocation = {
+          lat: 28.6139,
+          lng: 77.2090,
+          address: `${manualAddress} (Location approximate)`,
+        };
+        setLocation(demoLocation);
+        onLocationSelect(demoLocation);
+      }
+    } catch (err) {
+      // Network issues/throttling fallback
       const demoLocation = {
         lat: 28.6139,
         lng: 77.2090,
-        address: manualAddress,
+        address: `${manualAddress} (Fallback location)`,
       };
-
       setLocation(demoLocation);
       onLocationSelect(demoLocation);
-    } catch {
-      setError('Failed to set address');
     } finally {
       setLoading(false);
     }
@@ -85,12 +139,25 @@ const MapPicker = ({ onLocationSelect }) => {
 
   return (
     <div className="space-y-4">
+      {/* Interactive Map Visual Picker */}
+      <div className="relative">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Select Pickup Point on Map (Click Map or Drag Red Pin)
+        </label>
+        <FreeMap
+          lat={location ? location.lat : 28.6139}
+          lng={location ? location.lng : 77.2090}
+          onChange={handleMapLocationSelect}
+          interactive={!loading}
+        />
+      </div>
+
       {/* Use Current Location Button */}
       <button
         type="button"
         onClick={handleUseCurrentLocation}
         disabled={loading}
-        className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 flex items-center justify-center space-x-2"
+        className="w-full bg-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700 disabled:bg-gray-400 flex items-center justify-center space-x-2 shadow transition-colors"
       >
         {loading ? (
           <>
@@ -99,30 +166,30 @@ const MapPicker = ({ onLocationSelect }) => {
           </>
         ) : (
           <>
-            <Navigation className="h-5 w-5" />
-            <span>Use My Current Location</span>
+            <Navigation className="h-5 w-5 animate-pulse" />
+            <span>Detecting Live Location</span>
           </>
         )}
       </button>
 
       <div className="flex items-center space-x-4">
         <div className="flex-1 h-px bg-gray-300" />
-        <span className="text-sm text-gray-500">OR</span>
+        <span className="text-sm text-gray-500 font-semibold">OR</span>
         <div className="flex-1 h-px bg-gray-300" />
       </div>
 
-      {/* Manual Address */}
+      {/* Manual Address Lookup */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Pickup Address (optional)
+          Search Pickup Address / landmark
         </label>
         <div className="flex space-x-2">
           <input
             type="text"
             value={manualAddress}
             onChange={(e) => setManualAddress(e.target.value)}
-            placeholder="Enter address manually"
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg"
+            placeholder="Type address, e.g. Red Fort, Delhi"
+            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -134,38 +201,38 @@ const MapPicker = ({ onLocationSelect }) => {
             type="button"
             onClick={handleManualAddressSubmit}
             disabled={loading}
-            className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            className="px-6 py-3 bg-gray-800 text-white font-semibold rounded-lg hover:bg-gray-900 transition-colors"
           >
-            Set
+            Search
           </button>
         </div>
       </div>
 
-      {/* Error */}
+      {/* Error Message */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
-      {/* Location Confirmation */}
+      {/* Location Confirmation Details */}
       {location && (
-        <div className="relative h-64 bg-gray-100 rounded-lg border-2 border-green-400 flex items-center justify-center">
-          <div className="text-center">
-            <MapPin className="h-14 w-14 text-red-600 mx-auto mb-2" />
-            <p className="font-semibold text-gray-800">Location Confirmed</p>
-            <p className="text-xs text-gray-600 mt-1 px-4">
-              {location.address}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              Lat: {location.lat.toFixed(6)}, Lng: {location.lng.toFixed(6)}
-            </p>
+        <div className="p-4 bg-green-50 border-2 border-green-400 rounded-lg shadow-sm">
+          <div className="flex items-start space-x-3">
+            <MapPin className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-green-800 text-sm">Pickup Coordinates Confirmed:</p>
+              <p className="text-xs text-green-700 mt-1">{location.address}</p>
+              <p className="text-xs font-mono text-green-600 mt-1">
+                Latitude: {location.lat.toFixed(6)} | Longitude: {location.lng.toFixed(6)}
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      <p className="text-xs text-gray-500">
-        💡 Tip: Using current location gives fastest ambulance dispatch.
+      <p className="text-xs text-gray-500 text-center font-medium">
+        💡 Pro-Tip: Geolocation and dragging the map pin give the most precise results for emergency drivers.
       </p>
     </div>
   );

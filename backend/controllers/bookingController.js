@@ -96,3 +96,75 @@ exports.updateBookingStatus = async (req, res, next) => {
     next(error);
   }
 };
+
+// ===============================
+// GET BOOKING BY CUSTOM BOOKING ID
+// ===============================
+exports.getBookingByBookingId = async (req, res, next) => {
+  try {
+    const booking = await Booking.findOne({ bookingId: req.params.bookingId });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: booking
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===============================
+// GET BOOKINGS BY PHONE
+// ===============================
+exports.getBookingsByPhone = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({ phone: req.params.phone });
+
+    res.status(200).json({
+      success: true,
+      count: bookings.length,
+      data: bookings
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===============================
+// GET BOOKING STATS (SUMMARY)
+// ===============================
+exports.getBookingStats = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find();
+    const list = Array.isArray(bookings) ? bookings : await Booking.find().sort({ createdAt: -1 });
+
+    const stats = list.reduce(
+      (acc, curr) => {
+        const status = curr.status ? curr.status.toUpperCase() : 'PENDING';
+        acc.total += 1;
+        if (status === 'PENDING') acc.pending += 1;
+        else if (status === 'APPROVED') acc.approved += 1;
+        else if (status === 'DISPATCHED') acc.dispatched += 1;
+        else if (status === 'COMPLETED') acc.completed += 1;
+        else if (status === 'CANCELLED') acc.cancelled += 1;
+        return acc;
+      },
+      { total: 0, pending: 0, approved: 0, dispatched: 0, completed: 0, cancelled: 0 }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
