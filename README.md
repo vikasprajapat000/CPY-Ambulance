@@ -1,6 +1,6 @@
 # CPY-Ambulance 🚑
 
-A full-stack ambulance booking and tracking application built with React, Vite, Node.js, and Express. The project demonstrates a complete end-to-end solution for emergency services with frontend UX, backend API, and environment-safe configuration.
+A full-stack ambulance booking and tracking application built with React, Vite, Node.js, and Express. The project demonstrates a complete end-to-end solution for emergency services with live tracking frontend UX, backend API, and environment-safe configuration.
 
 ## Key Features
 
