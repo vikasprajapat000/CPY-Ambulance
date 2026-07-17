@@ -1,6 +1,7 @@
 const Booking = require('../models/Booking');
 const { generateWhatsAppUrl } = require('../utils/whatsappService');
 const { sendApprovalEmail } = require('../utils/emailService');
+const { calculateDistanceInMeters } = require('../utils/geoUtils');
 
 // ===============================
 // CREATE BOOKING
@@ -10,6 +11,31 @@ exports.createBooking = async (req, res, next) => {
     const booking = await Booking.create(req.body);
 
     const whatsappUrl = generateWhatsAppUrl(booking);
+
+    // ── Proximity Alert Broadcast (100m Radius) ──
+    const activeUsers = req.app.get('activeUsers');
+    const io = req.app.get('io');
+    
+    if (activeUsers && io && booking.latitude && booking.longitude) {
+      Object.entries(activeUsers).forEach(([socketId, coords]) => {
+        const distance = calculateDistanceInMeters(
+          booking.latitude, booking.longitude,
+          coords.lat, coords.lng
+        );
+        
+        if (distance <= 100) {
+          // Send private alert to this user
+          io.to(socketId).emit('nearby-emergency', {
+            bookingId: booking.bookingId,
+            dbId: booking._id,
+            distance: Math.round(distance),
+            emergencyType: booking.emergencyType,
+            address: booking.address
+          });
+          console.log(`[Proximity Alert] Sent to ${socketId} - Distance: ${Math.round(distance)}m`);
+        }
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -68,23 +94,28 @@ exports.getBookingById = async (req, res, next) => {
 exports.updateBookingStatus = async (req, res, next) => {
   try {
     const status = req.body.status.toUpperCase(); // FORCE FORMAT
-
     const booking = await Booking.findByIdAndUpdate(
       req.params.id,
       { status },
-      { new: true }
+      { new: true, runValidators: true }
     );
-
     if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
+      return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
     // ✅ SEND EMAIL ONLY WHEN APPROVED
     if (status === 'APPROVED') {
       await sendApprovalEmail(booking);
+    }
+
+    // ✅ EMIT REAL-TIME STATUS UPDATE VIA SOCKET.IO
+    const io = req.app && req.app.get ? req.app.get('io') : null;
+    if (io) {
+      io.to(`booking-${booking._id}`).emit('status-update', {
+        bookingId: booking._id,
+        status:    booking.status,
+        updatedAt: new Date().toISOString(),
+      });
     }
 
     res.status(200).json({
@@ -168,3 +199,51 @@ exports.getBookingStats = async (req, res, next) => {
   }
 };
 
+// ===============================
+// GET PENDING BOOKINGS FOR DRIVERS
+// ===============================
+exports.getPendingBookings = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({ status: 'PENDING' }).sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      count: bookings.length,
+      data: bookings
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===============================
+// DRIVER ACCEPTS BOOKING
+// ===============================
+exports.acceptBooking = async (req, res, next) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    if (booking.status !== 'PENDING') {
+      return res.status(400).json({ success: false, message: 'Booking is no longer pending' });
+    }
+
+    booking.status = 'DISPATCHED';
+    booking.driverId = req.user._id;
+    await booking.save();
+
+    // Alert users nearby that ambulance is dispatched
+    const io = req.app.get('socketio');
+    if (io) {
+      io.to(`booking-${booking.bookingId}`).emit('status-update', { status: 'DISPATCHED' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking accepted successfully',
+      data: booking
+    });
+  } catch (error) {
+    next(error);
+  }
+};

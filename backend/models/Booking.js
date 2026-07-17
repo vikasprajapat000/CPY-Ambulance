@@ -11,7 +11,11 @@ const bookingSchema = new mongoose.Schema(
     latitude: Number,
     longitude: Number,
     additionalInfo: String,
-
+    driverId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     status: {
       type: String,
       enum: ['PENDING', 'APPROVED', 'DISPATCHED', 'COMPLETED', 'CANCELLED'],
@@ -136,9 +140,11 @@ class MockBookingModel {
 const BookingProxy = new Proxy({}, {
   get(target, prop) {
     if (getIsConnected()) {
-      return MongooseBooking[prop];
+      const value = MongooseBooking[prop];
+      return typeof value === 'function' ? value.bind(MongooseBooking) : value;
     } else {
-      return MockBookingModel[prop];
+      const value = MockBookingModel[prop];
+      return typeof value === 'function' ? value.bind(MockBookingModel) : value;
     }
   }
 });

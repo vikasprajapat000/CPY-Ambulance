@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -97,6 +97,15 @@ export const updateBookingStatus = async (id, status) => {
 export const getBookingStats = async () => {
   try {
     const response = await api.get('/bookings/stats/summary');
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const updateAmbulanceLocation = async (locationData) => {
+  try {
+    const response = await api.post('/location/update', locationData);
     return response;
   } catch (error) {
     throw error;
